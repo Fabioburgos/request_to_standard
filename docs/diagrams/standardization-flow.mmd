@@ -1,0 +1,54 @@
+flowchart TD
+    Start(["Petición Cliente"]) --> Step1["1: Ingesta de Datos<br>Cliente"]
+    Step1 --> Step1Box["<b>Entrada:</b><br>• CSV, XLSX<br>"]
+    Step1Box --> Step2["2: Limpieza de Datos"]
+    Step2 --> Step2Box["<b>Preprocesamiento:</b><br>• Eliminación espacios<br>• Corrección encoding<br>• Remoción caracteres especiales<br>• Normalización formato"]
+    Step2Box --> Step3["3: Normalización de Datos"]
+    Step3 --> Step3Box["<b>Estructuración:</b><br>• Extracción campos clave<br>• Tipado de datos<br>• Estructuración consistente<br>• Validación sintáctica"]
+    Step3Box --> Step4["4: Identificación de Metadatos"]
+    Step4 --> Step4Box["<b>Análisis:</b><br>• Tipo de consulta<br>• Contexto de negocio<br>• Parámetros relevantes<br>• Intención del usuario"]
+    Step4Box --> Step4_1["4.1: Selección de Estándar<br>RAG 1 o RAG 2"]
+    Step4_1 --> Decision{"Análisis de<br>Metadatos y Reglas<br>de Enrutamiento"}
+    Decision -- RAG 1 --> Path1["RAG 1"]
+    Decision -- RAG 2 --> Path2["RAG 2"]
+    Path1 --> Step5["5: ESTANDARIZACIÓN"]
+    Path2 --> Step5
+    Step5 --> Step5_1["5.1 Conceptualización<br>de Estándar"]
+    Step5_1 --> Step5_1Box1["<b>RAG 1:</b><br>• Definición modelo objetivo RAG 1<br>• Mapeo campos específicos<br>• Reglas transformación RAG 1"] & Step5_1Box2["<b>RAG 2:</b><br>• Definición modelo objetivo RAG 2<br>• Mapeo campos específicos<br>• Reglas transformación RAG 2"]
+    Step5_1Box1 --> Step5_2["5.2: Traducción de Data<br>Cliente → Estándar"]
+    Step5_1Box2 --> Step5_2
+    Step5_2 --> Step5_3["5.3: Generación de Estándar"]
+    Step5_3 --> Step6["6: Validación de Data y<br>Obtención de Umbral"]
+    Step6 --> Step6Box["<b>Control de Calidad:</b><br>• Validación estructura<br>• Cálculo umbral confianza<br>• Verificación integridad<br>• Aprobación para envío"]
+    Step6Box --> Output1@{ label: "<b>RAG 1:</b><br>Payload con estructura<br>estandarizada RAG 1<br>format: 'rag1_standard'" } & Output2@{ label: "<b>RAG 2:</b><br>Payload con estructura<br>estandarizada RAG 2<br>format: 'rag2_standard'" }
+    Output1 --> DB[("Base de Datos")]
+    Output2 --> DB
+
+    Output1@{ shape: rect}
+    Output2@{ shape: rect}
+    style Start fill:#fff,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    style Step1 fill:#eff6ff,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a
+    style Step1Box fill:#fff,stroke:#93c5fd,stroke-width:1px,color:#1e3a8a
+    style Step2 fill:#f0fdf4,stroke:#10b981,stroke-width:2px,color:#065f46
+    style Step2Box fill:#fff,stroke:#86efac,stroke-width:1px,color:#065f46
+    style Step3 fill:#faf5ff,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6
+    style Step3Box fill:#fff,stroke:#c4b5fd,stroke-width:1px,color:#5b21b6
+    style Step4 fill:#fff7ed,stroke:#f97316,stroke-width:2px,color:#9a3412
+    style Step4Box fill:#fff,stroke:#fdba74,stroke-width:1px,color:#9a3412
+    style Step4_1 fill:#fdf4ff,stroke:#ec4899,stroke-width:2px,color:#831843
+    style Decision fill:#fffbeb,stroke:#f59e0b,stroke-width:2px,color:#78350f
+    style Path1 fill:#eff6ff,stroke:#60a5fa,stroke-width:2px,color:#1e40af
+    style Path2 fill:#faf5ff,stroke:#a78bfa,stroke-width:2px,color:#6b21a8
+    style Step5 fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
+    style Step5_1 fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
+    style Step5_1Box1 fill:#fff,stroke:#c7d2fe,stroke-width:1px,color:#3730a3
+    style Step5_1Box2 fill:#fff,stroke:#c7d2fe,stroke-width:1px,color:#3730a3
+    style Step5_2 fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
+    style Step5_3 fill:#eef2ff,stroke:#6366f1,stroke-width:2px,color:#3730a3
+    style Step6 fill:#f0fdf4,stroke:#10b981,stroke-width:2px,color:#065f46
+    style Step6Box fill:#fff,stroke:#86efac,stroke-width:1px,color:#065f46
+    style Output1 fill:#fff,stroke:#93c5fd,stroke-width:1px,color:#1e3a8a
+    style Output2 fill:#fff,stroke:#c4b5fd,stroke-width:1px,color:#5b21b6
+    style DB fill:#f0fdf4,stroke:#22c55e,stroke-width:2px,color:#065f46
+
+
