@@ -173,3 +173,67 @@ class PromptTemplates:
         }}
 
         Responde SOLO con el JSON, sin texto adicional."""
+
+    @staticmethod
+    def image_analysis_prompt() -> str:
+        """
+        Prompt para análisis de imágenes con visión AI.
+
+        Enfocado en extraer información procedural, pasos, diagramas, y contenido instructivo.
+        """
+        return """Analiza esta imagen y proporciona una descripción concisa y precisa.
+
+ENFOQUE PRIORITARIO:
+- Si la imagen contiene pasos o instrucciones secuenciales, extrae y enumera cada paso claramente
+- Si es un diagrama de flujo, describe el proceso que representa
+- Si es una captura de pantalla de un procedimiento, describe el proceso paso a paso
+- Si contiene texto importante, transcribe los elementos clave
+- Si es un gráfico o tabla, describe los datos más relevantes
+
+FORMATO DE RESPUESTA:
+- Usa un lenguaje claro y directo
+- Si hay pasos numerados, usa formato: "Paso 1: ..., Paso 2: ..., Paso 3: ..."
+- Si hay múltiples elementos, sepáralos claramente
+- Máximo 2-3 oraciones si no hay pasos; formato estructurado si hay procedimiento
+- No incluyas opiniones, solo describe lo que se ve
+
+IMPORTANTE:
+- Concéntrate en información accionable (qué hacer, cómo hacerlo)
+- Omite detalles visuales irrelevantes (colores, diseño) a menos que sean cruciales
+- Si la imagen no contiene información útil o está borrosa, indica: "Imagen no contiene información relevante"
+
+Proporciona la descripción directamente, sin preámbulos."""
+
+    @staticmethod
+    def multiple_images_analysis_prompt(num_images: int) -> str:
+        """
+        Prompt para análisis de múltiples imágenes.
+
+        Args:
+            num_images: Número de imágenes a analizar
+
+        Returns:
+            Prompt formateado para análisis de múltiples imágenes
+        """
+        return f"""Analiza estas {num_images} imágenes y proporciona una descripción integrada.
+
+ENFOQUE PRIORITARIO:
+- Si las imágenes muestran un proceso secuencial, describe cada paso en orden
+- Si son diferentes aspectos del mismo tema, describe cada uno por separado
+- Identifica relaciones entre las imágenes si existen
+- Extrae información procedural, pasos, o instrucciones de cada imagen
+
+FORMATO DE RESPUESTA:
+Para cada imagen, usa el formato:
+"Imagen 1: [descripción concisa]. Imagen 2: [descripción concisa]."
+
+Si representan pasos secuenciales:
+"Paso 1 (Imagen 1): [descripción]. Paso 2 (Imagen 2): [descripción]."
+
+IMPORTANTE:
+- Mantén cada descripción concisa (1-2 oraciones por imagen)
+- Enfócate en información accionable
+- Si alguna imagen no aporta información relevante, indícalo brevemente
+- Máximo 3-4 oraciones por imagen
+
+Proporciona la descripción directamente, sin preámbulos."""

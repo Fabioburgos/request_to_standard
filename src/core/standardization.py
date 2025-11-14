@@ -29,7 +29,8 @@ class DataStandardization:
         df: pd.DataFrame,
         target_rag: Literal["rag1", "rag2"],
         column_mapping: Dict[str, str],
-        generate_embeddings: bool = False
+        generate_embeddings: bool = False,
+        images_by_row: Dict[int, List[Dict]] = None
     ) -> List[Dict[str, Any]]:
         """
         Pipeline completo de estandarización
@@ -39,6 +40,7 @@ class DataStandardization:
             target_rag: RAG objetivo (rag1 o rag2)
             column_mapping: Mapeo de columnas
             generate_embeddings: Si generar embeddings
+            images_by_row: Diccionario opcional con imágenes por fila
 
         Returns:
             Lista de registros estandarizados
@@ -58,7 +60,7 @@ class DataStandardization:
 
         # Step 5.3: Generar registros estandarizados
         validated_records = []
-        for record in standardized_records:
+        for idx, record in enumerate(standardized_records):
             try:
                 if target_rag == "rag1":
                     validated = self._create_rag1_record(record, generate_embeddings)
@@ -70,6 +72,11 @@ class DataStandardization:
                 # Log error pero continuar
                 logger.error(f"Error procesando registro: {e}", exc_info=True)
                 continue
+
+        # Step 5.4: Analizar imágenes y actualizar image_caption (solo para RAG1)
+        if target_rag == "rag1" and images_by_row:
+            logger.info(f"Analizando imágenes para {len(images_by_row)} filas...")
+            await self._analyze_and_update_images(validated_records, images_by_row)
 
         return validated_records
 
@@ -492,3 +499,71 @@ class DataStandardization:
         # Validar con Pydantic
         rag2_obj = RAG2Schema(**normalized_record)
         return rag2_obj.model_dump()
+
+    async def _analyze_and_update_images(
+        self,
+        validated_records: List[Dict[str, Any]],
+        images_by_row: Dict[int, List[Dict]]
+    ) -> None:
+        """
+        Analiza imágenes usando visión AI y actualiza el campo image_caption.
+
+        Args:
+            validated_records: Lista de registros validados (se modifica in-place)
+            images_by_row: Diccionario con imágenes por índice de fila
+        """
+        import time
+
+        total_images_processed = 0
+        total_rows_with_images = 0
+
+        for row_idx, images in images_by_row.items():
+            # Verificar que el índice esté dentro del rango de registros
+            if row_idx >= len(validated_records):
+                logger.warning(f"Índice de fila {row_idx} fuera de rango, omitiendo imágenes")
+                continue
+
+            if not images:
+                continue
+
+            total_rows_with_images += 1
+            logger.info(f"Fila {row_idx}: Analizando {len(images)} imagen(es)...")
+
+            try:
+                # Analizar imagen(es)
+                start_time = time.time()
+
+                if len(images) == 1:
+                    # Una sola imagen
+                    image = images[0]
+                    prompt = self.prompts.image_analysis_prompt()
+                    caption = await self.llm_client.analyze_image(
+                        image_base64=image['base64'],
+                        image_format=image['format'],
+                        prompt=prompt,
+                        temperature=0.3,
+                        max_tokens=500
+                    )
+                    logger.info(f"Fila {row_idx}: Imagen analizada en {time.time() - start_time:.2f}s")
+                else:
+                    # Múltiples imágenes
+                    prompt = self.prompts.multiple_images_analysis_prompt(len(images))
+                    caption = await self.llm_client.analyze_multiple_images(
+                        images=images,
+                        prompt=prompt,
+                        temperature=0.3,
+                        max_tokens=800
+                    )
+                    logger.info(f"Fila {row_idx}: {len(images)} imágenes analizadas en {time.time() - start_time:.2f}s")
+
+                # Actualizar el campo image_caption en el registro
+                validated_records[row_idx]['image_caption'] = caption.strip()
+                total_images_processed += len(images)
+
+            except Exception as e:
+                logger.error(f"Error analizando imágenes en fila {row_idx}: {str(e)}")
+                # Mantener image_caption como None si falla el análisis
+                validated_records[row_idx]['image_caption'] = None
+                continue
+
+        logger.info(f"Análisis de imágenes completado: {total_images_processed} imágenes en {total_rows_with_images} filas")

@@ -55,10 +55,12 @@ class StandardizationPipeline:
         logger.info(f"Iniciando pipeline para archivo: {filename} ({file_size} bytes)")
 
         try:
-            # STEP 1: Ingesta de Datos Cliente
+            # STEP 1: Ingesta de Datos Cliente (y extracción de imágenes)
             logger.info("STEP 1: Iniciando ingesta de datos")
-            df_raw = await self.ingestion.ingest(file_content, filename)
+            df_raw, images_by_row = await self.ingestion.ingest(file_content, filename)
             logger.info(f"STEP 1: Ingesta completada - {len(df_raw)} filas, {len(df_raw.columns)} columnas")
+            if images_by_row:
+                logger.info(f"STEP 1: Extraídas imágenes para {len(images_by_row)} filas")
 
             # Obtener info del archivo
             file_info = FileInfo(
@@ -93,13 +95,14 @@ class StandardizationPipeline:
 
             logger.info("STEP 4: Normalización completada")
 
-            # STEP 5: ESTANDARIZACIÓN (5.1, 5.2, 5.3)
+            # STEP 5: ESTANDARIZACIÓN (5.1, 5.2, 5.3, 5.4 con análisis de imágenes)
             logger.info(f"STEP 5: Iniciando estandarización a formato {target_rag.upper()}")
             standardized_records = await self.standardization.standardize(
                 df_normalized,
                 target_rag,
                 column_mapping,
-                generate_embeddings
+                generate_embeddings,
+                images_by_row  # Pasar imágenes para análisis
             )
             logger.info(f"STEP 5: Estandarización completada - {len(standardized_records)} registros")
 
