@@ -1,20 +1,28 @@
 # Request to Standard - PoC
 
-Servicio de estandarización de datos que convierte archivos CSV/XLSX a formatos RAG 1 o RAG 2.
+Servicio de estandarización de datos que convierte archivos CSV/XLSX a formatos RAG 1 o RAG 2, con análisis automático de imágenes mediante AI.
 
 ## Descripción
 
 Este proyecto implementa un pipeline completo de estandarización de datos siguiendo el flujo:
 
 ```
-CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos → Routing (RAG1/RAG2) → Estandarización → Validación → Output
+CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos → Routing (RAG1/RAG2) → Estandarización → Análisis de Imágenes (AI) → Validación → Output
 ```
+
+### ✨ Características Destacadas
+
+- **Estandarización Inteligente**: Convierte datos no estructurados a formatos RAG optimizados
+- **Análisis de Imágenes con AI**: Extrae automáticamente descripciones de imágenes embebidas en archivos Excel
+- **Procesamiento con Azure OpenAI**: Usa modelos avanzados de lenguaje y visión
+- **Validación Automática**: Verifica integridad y calcula umbrales de confianza
 
 ### Formatos RAG
 
 **RAG 1** - Documentos estructurados:
 - Campos: `id`, `articulo_id`, `tipo`, `numero`, `titulo`, `texto`, `image_caption`, `keywords`, `embedding`
 - Uso: Leyes, artículos, normativas, documentos formales
+- **✨ Análisis de Imágenes**: El campo `image_caption` se genera automáticamente mediante AI cuando hay imágenes embebidas en archivos XLSX
 
 **RAG 2** - Servicios/Tickets:
 - Campos: `id`, `descripcion`, `tipo`, `servicio`, `categoria`, `subcategoria`, `fuente`, `embedding`
@@ -33,17 +41,17 @@ request-to-standard/
 ├── src/
 │   ├── api/                  # Routes FastAPI
 │   ├── core/                 # Pipeline de procesamiento
-│   │   ├── ingestion.py     # Step 1: Ingesta
+│   │   ├── ingestion.py     # Step 1: Ingesta + extracción de imágenes
 │   │   ├── cleaning.py      # Step 2: Limpieza
 │   │   ├── normalization.py # Step 3: Normalización
 │   │   ├── metadata_analysis.py # Step 4: Análisis
 │   │   ├── routing.py       # Step 4.1: Routing RAG
-│   │   ├── standardization.py # Step 5: Estandarización
+│   │   ├── standardization.py # Step 5: Estandarización + análisis de imágenes
 │   │   ├── validation.py    # Step 6: Validación
 │   │   └── pipeline.py      # Orquestador principal
 │   ├── gpt/                  # Azure OpenAI
-│   │   ├── client.py        # Cliente Azure OpenAI
-│   │   └── prompts.py       # Templates de prompts
+│   │   ├── client.py        # Cliente Azure OpenAI + Vision API
+│   │   └── prompts.py       # Templates de prompts (texto + visión)
 │   ├── models/               # Schemas Pydantic
 │   │   ├── rag1_schema.py   # Schema RAG 1
 │   │   ├── rag2_schema.py   # Schema RAG 2
@@ -52,6 +60,7 @@ request-to-standard/
 │   ├── mcp/                  # MCP tools (futuro)
 │   └── utils/                # Utilidades
 │       ├── file_handlers.py
+│       ├── image_extractor.py  # ✨ Extracción de imágenes de XLSX
 │       └── sampling.py
 ├── docs/
 │   └── diagrams/
@@ -79,6 +88,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**Dependencias principales:**
+- `fastapi` - Framework web
+- `pandas` - Procesamiento de datos
+- `openpyxl` - Lectura de archivos Excel
+- `Pillow` - ✨ Procesamiento de imágenes
+- `openai` - Cliente Azure OpenAI (incluye Vision API)
+- `pydantic` - Validación de esquemas
+
 ### 3. Configurar variables de entorno
 
 Copiar [.env.example](.env.example) a `.env` y configurar:
@@ -90,11 +107,49 @@ cp .env.example .env
 Editar `.env` con tus credenciales Azure OpenAI:
 
 ```env
+# Azure OpenAI - Configuración principal
 AZURE_OPENAI_O1MINI_API_KEY=tu-api-key
 AZURE_OPENAI_O1MINI_API_VERSION=2024-08-01-preview
 AZURE_OPENAI_O1MINI_ENDPOINT=https://tu-endpoint.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT_NAME=tu-deployment-name
+
+# Azure OpenAI - Embeddings (opcional)
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+
+# ✨ Azure OpenAI - Vision (para análisis de imágenes en XLSX)
+# Opcional - Si no se especifica, usa AZURE_OPENAI_DEPLOYMENT_NAME
+# Recomendado: usar un modelo con capacidad de visión como gpt-4o
+AZURE_OPENAI_VISION_DEPLOYMENT=gpt-4o
+
+# Configuración de la aplicación
+ENVIRONMENT=development
+LOG_LEVEL=INFO
+MAX_FILE_SIZE_MB=50
 ```
+
+#### Configuración del Modelo de Visión
+
+Para habilitar el **análisis automático de imágenes** en archivos XLSX:
+
+1. **Despliega un modelo de visión** en Azure OpenAI:
+   - Modelos recomendados: `gpt-4o`, `gpt-4-vision-preview`, `gpt-4-turbo`
+   - Región: Asegúrate que la región soporte modelos de visión
+
+2. **Configura la variable de entorno**:
+   ```env
+   AZURE_OPENAI_VISION_DEPLOYMENT=nombre-de-tu-deployment-vision
+   ```
+
+3. **Opcional**: Si tu deployment principal ya soporta visión, puedes omitir esta variable:
+   ```env
+   # Si AZURE_OPENAI_DEPLOYMENT_NAME ya es un modelo de visión (ej: gpt-4o)
+   # No necesitas configurar AZURE_OPENAI_VISION_DEPLOYMENT
+   ```
+
+**Nota**: El análisis de imágenes solo funciona con:
+- Archivos XLSX (no CSV)
+- Formato RAG 1 (RAG 2 no tiene campo `image_caption`)
+- Imágenes embebidas en las celdas de Excel
 
 ## Uso
 
@@ -261,6 +316,8 @@ python mcp_server.py
 - Lee archivos CSV/XLSX
 - Detecta encoding automáticamente
 - Valida estructura básica
+- **✨ Extrae imágenes embebidas** (solo XLSX)
+- Mapea imágenes a sus filas correspondientes
 
 ### Step 2: Limpieza
 - Elimina espacios en blanco
@@ -289,11 +346,95 @@ python mcp_server.py
 - **5.1**: Conceptualización con LLM
 - **5.2**: Traducción de datos
 - **5.3**: Generación de registros estandarizados
+- **5.4**: ✨ **Análisis de Imágenes con AI** (solo RAG 1):
+  - Detecta imágenes asociadas a cada registro
+  - Analiza imágenes con Azure OpenAI Vision
+  - Extrae descripciones enfocadas en:
+    - Pasos e instrucciones secuenciales
+    - Procesos y diagramas de flujo
+    - Información procedural
+    - Texto relevante en imágenes
+  - Genera descripciones concisas y accionables
+  - Popula campo `image_caption` automáticamente
 
 ### Step 6: Validación
 - Valida estructura con Pydantic
 - Calcula umbral de confianza
 - Verifica integridad de datos
+
+## ✨ Análisis Automático de Imágenes con AI
+
+El sistema incluye análisis automático de imágenes embebidas en archivos Excel usando Azure OpenAI Vision.
+
+### Características
+
+- **Extracción Automática**: Detecta y extrae imágenes de archivos XLSX
+- **Análisis Inteligente**: Usa modelos de visión (GPT-4o) para entender el contenido
+- **Enfoque Procedural**: Extrae pasos, instrucciones y procesos
+- **Múltiples Imágenes**: Soporta múltiples imágenes por fila
+- **Sin Configuración**: Se activa automáticamente cuando detecta imágenes
+
+### Cómo Funciona
+
+1. **Subir archivo XLSX con imágenes embebidas**
+2. El sistema automáticamente:
+   - Extrae las imágenes durante la ingesta
+   - Las mapea a sus filas correspondientes
+   - Las analiza con Azure OpenAI Vision
+   - Genera descripciones inteligentes
+   - Popula el campo `image_caption` en RAG 1
+
+### Ejemplo de Uso
+
+**Archivo Excel de entrada:**
+```
+| doc_ref | titulo           | texto                    | [Imagen Embebida]     |
+|---------|------------------|--------------------------|-----------------------|
+| ART001  | Setup Guide      | Complete instructions... | [3 imágenes de pasos] |
+```
+
+**Salida RAG 1:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "articulo_id": "ART001",
+  "tipo": "Tutorial",
+  "numero": 1,
+  "titulo": "Setup Guide",
+  "texto": "Complete instructions...",
+  "image_caption": "Paso 1 (Imagen 1): Abrir el menú de configuración. Paso 2 (Imagen 2): Navegar a la pestaña de opciones. Paso 3 (Imagen 3): Hacer clic en guardar cambios.",
+  "keywords": null,
+  "embedding": null
+}
+```
+
+### Tipos de Contenido Detectado
+
+El modelo de visión está optimizado para extraer:
+
+- ✅ **Pasos secuenciales**: "Paso 1: ..., Paso 2: ..., Paso 3: ..."
+- ✅ **Diagramas de flujo**: Descripción del proceso representado
+- ✅ **Capturas de pantalla**: Procedimientos paso a paso
+- ✅ **Texto en imágenes**: Transcripción de elementos clave
+- ✅ **Gráficos y tablas**: Datos relevantes extraídos
+
+### Requisitos
+
+1. **Archivo XLSX** (no funciona con CSV)
+2. **Formato RAG 1** (RAG 2 no tiene campo `image_caption`)
+3. **Imágenes embebidas en celdas** (Insert → Pictures → Place in Cell en Excel)
+4. **Modelo de visión configurado** (ver sección de configuración arriba)
+
+### Manejo de Errores
+
+Si el análisis de imágenes falla:
+- El campo `image_caption` se establece como `null`
+- El procesamiento continúa sin interrupciones
+- Los errores se registran en los logs
+
+### Documentación Detallada
+
+Para más información, consulta [IMAGE_ANALYSIS_FEATURE.md](IMAGE_ANALYSIS_FEATURE.md)
 
 ## Testing
 
@@ -304,6 +445,33 @@ pip install pytest pytest-asyncio httpx
 # Ejecutar tests
 pytest tests/
 ```
+
+### Probar con Imágenes
+
+Para probar el análisis automático de imágenes:
+
+1. **Crear un archivo Excel de prueba**:
+   - Abre Excel y crea datos de prueba
+   - Inserta imágenes: `Insert → Pictures → Place in Cell`
+   - Guarda como `.xlsx`
+
+2. **Subir el archivo**:
+   ```bash
+   curl -X POST "http://localhost:8000/standardize" \
+     -F "file=@test_with_images.xlsx" \
+     -F "target_rag=rag1"
+   ```
+
+3. **Verificar resultados**:
+   - El campo `image_caption` debe contener descripciones de las imágenes
+   - Si no hay imágenes, `image_caption` será `null`
+   - Revisa los logs para ver el progreso del análisis
+
+**Tipos de imágenes recomendadas para testing:**
+- Capturas de pantalla con instrucciones
+- Diagramas de flujo o procesos
+- Imágenes con texto visible
+- Gráficos o tablas
 
 ## Desarrollo
 
@@ -335,9 +503,18 @@ def custom_prompt(data: dict) -> str:
 - No incluye base de datos persistente
 - Embeddings opcionales (requiere configuración adicional)
 - Validación básica de umbral (80%)
+- Análisis de imágenes secuencial (no paralelo)
+- Análisis de imágenes solo para XLSX y RAG 1
 
 ## Roadmap
 
+### Completado ✅
+- [x] ✨ **Análisis automático de imágenes con AI** (Nov 2024)
+- [x] Extracción de imágenes de archivos XLSX
+- [x] Integración con Azure OpenAI Vision
+- [x] Generación automática de `image_caption`
+
+### Pendiente
 - [ ] Implementación completa de embeddings
 - [ ] Procesamiento en chunks para datasets grandes
 - [ ] Base de datos PostgreSQL/SQLite
@@ -345,6 +522,9 @@ def custom_prompt(data: dict) -> str:
 - [ ] Tests unitarios completos
 - [ ] Integración MCP con agente orquestador
 - [ ] Monitoreo y métricas
+- [ ] Análisis de imágenes en paralelo
+- [ ] Soporte de imágenes para RAG 2
+- [ ] OCR especializado para imágenes con mucho texto
 
 ## Licencia
 
