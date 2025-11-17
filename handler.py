@@ -1,176 +1,155 @@
-"""
-AWS Lambda Handler - Request to Standard
-Maneja eventos de AWS Lambda (API Gateway, S3, etc.)
+# handler.py (MCP WRAPPER)
 
-Desplegar con:
-    - AWS SAM
-    - Serverless Framework
-    - AWS CDK
-"""
 import json
-import boto3
+import logging
 import asyncio
-from main import app
-from mangum import Mangum
-from typing import Any, Dict
-from custom_logging import get_logger
-from src.core.pipeline import StandardizationPipeline
+from src.tools.standardize_tool import invoke_standardize_tool, get_tool_definition
 
-logger = get_logger(__name__)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-# Adapter Mangum para convertir FastAPI a Lambda handler
-lambda_handler = Mangum(app, lifespan="off")
-
-
-def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def lambda_handler(event, context):
     """
-    Lambda handler principal
+    Handler MCP para invocación directa desde Lambda
 
-    Soporta:
-    - API Gateway events (HTTP API, REST API)
-    - S3 events (para procesar archivos subidos a S3)
-    - EventBridge events
+    El orquestador invoca esta Lambda usando JSON-RPC 2.0 con:
+    - method: "tools/list" o "tools/call"
+    - params: argumentos de la tool
+    - id: identificador del mensaje
 
-    Args:
-        event: Evento de Lambda
-        context: Contexto de Lambda
-
-    Returns:
-        Response formateado para Lambda
-    """
-    # Detectar tipo de evento
-    event_source = detect_event_source(event)
-
-    if event_source == "s3":
-        return handle_s3_event(event, context)
-    elif event_source in ["api_gateway", "alb"]:
-        # Usar Mangum para eventos HTTP
-        return lambda_handler(event, context)
-    else:
-        # Evento no soportado
-        return {
-            "statusCode": 400,
-            "body": json.dumps({
-                "error": "Tipo de evento no soportado",
-                "event_source": event_source
-            })
-        }
-
-
-def detect_event_source(event: Dict[str, Any]) -> str:
-    """
-    Detecta la fuente del evento
-
-    Returns:
-        Tipo de evento: 's3', 'api_gateway', 'alb', 'unknown'
-    """
-    if "Records" in event and len(event["Records"]) > 0:
-        record = event["Records"][0]
-        if "s3" in record:
-            return "s3"
-
-    if "requestContext" in event:
-        if "elb" in event["requestContext"]:
-            return "alb"
-        return "api_gateway"
-
-    if "version" in event and "routeKey" in event:
-        return "api_gateway"
-
-    return "unknown"
-
-
-def handle_s3_event(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
-    """
-    Procesa evento de S3
-
-    Cuando se sube un archivo CSV/XLSX a S3, procesar automáticamente
-
-    Args:
-        event: S3 event
-        context: Lambda context
-
-    Returns:
-        Response con resultado del procesamiento
+    Configuración en orquestador:
+    MCP_WRAPPERS: {"request-to-standard": "dev-mcp-wrapper-request-to-standard"}
     """
     try:
-        # Obtener información del archivo S3
-        s3 = boto3.client('s3')
-        record = event["Records"][0]["s3"]
-        bucket = record["bucket"]["name"]
-        key = record["object"]["key"]
+        logger.info("=== MCP Wrapper Handler - Request to Standard ===")
 
-        # Descargar archivo de S3
-        response = s3.get_object(Bucket=bucket, Key=key)
-        file_content = response["Body"].read()
-        file_size = response["ContentLength"]
+        method = event.get('method')
+        params = event.get('params', {})
+        msg_id = event.get('id', 1)
 
-        # Obtener nombre del archivo
-        filename = key.split('/')[-1]
+        logger.info(f"Method: {method}")
+        logger.info(f"Message ID: {msg_id}")
 
-        # Procesar con pipeline
-        pipeline = StandardizationPipeline()
-
-        # Ejecutar pipeline de forma síncrona en Lambda
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
-            pipeline.process(
-                file_content=file_content,
-                filename=filename,
-                file_size=file_size
-            )
-        )
-        loop.close()
-
-        # Guardar resultado en S3 (opcional)
-        output_key = f"standardized/{filename.rsplit('.', 1)[0]}_standardized.json"
-        s3.put_object(
-            Bucket=bucket,
-            Key=output_key,
-            Body=json.dumps(result.model_dump(), indent=2),
-            ContentType="application/json"
-        )
-
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "message": "Archivo procesado exitosamente",
-                "input": f"s3://{bucket}/{key}",
-                "output": f"s3://{bucket}/{output_key}",
-                "result_summary": {
-                    "selected_rag": result.selected_rag,
-                    "records_count": len(result.result.data),
-                    "confidence_score": result.result.confidence_score
-                }
-            })
-        }
+        try:
+            result = loop.run_until_complete(handle_method(method, params, msg_id))
+            return result
+        finally:
+            loop.close()
 
     except Exception as e:
+        logger.error(f"Error: {e}", exc_info=True)
         return {
-            "statusCode": 500,
-            "body": json.dumps({
-                "error": f"Error procesando archivo S3: {str(e)}"
-            })
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32603, "message": str(e)}
         }
 
 
-# Para testing local
-if __name__ == "__main__":
-    # Ejemplo de evento API Gateway para testing
-    test_event = {
-        "version": "2.0",
-        "routeKey": "GET /health",
-        "rawPath": "/health",
-        "requestContext": {
-            "http": {
-                "method": "GET",
-                "path": "/health"
-            }
-        },
-        "headers": {},
-        "isBase64Encoded": False
-    }
+async def handle_method(method: str, params: dict, msg_id):
+    """Maneja métodos MCP: tools/list y tools/call"""
 
-    result = handler(test_event, None)
-    logger.info(json.dumps(result, indent=2))
+    if method == "tools/list":
+        logger.info("✅ Listing tools")
+        tool_def = get_tool_definition()
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "tools": [{
+                    "name": tool_def.name,
+                    "description": tool_def.description,
+                    "inputSchema": tool_def.inputSchema
+                }]
+            }
+        }
+
+    elif method == "tools/call":
+        logger.info("✅ Calling tool")
+        tool_name = params.get('name')
+        arguments = params.get('arguments', {})
+
+        if tool_name != "standardize_data":
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {"code": -32601, "message": f"Tool not found: {tool_name}"}
+            }
+
+        try:
+            # Extraer argumentos
+            file_content = arguments.get('file_content')
+            filename = arguments.get('filename')
+            target_rag = arguments.get('target_rag')
+            generate_embeddings = arguments.get('generate_embeddings', False)
+
+            logger.info(f"Argumentos recibidos:")
+            logger.info(f"  - filename: {filename}")
+            logger.info(f"  - target_rag: {target_rag}")
+            logger.info(f"  - generate_embeddings: {generate_embeddings}")
+            logger.info(f"  - file_content: {len(file_content) if file_content else 0} caracteres base64")
+
+            # Invocar la tool
+            result = await invoke_standardize_tool(
+                file_content=file_content,
+                filename=filename,
+                target_rag=target_rag,
+                generate_embeddings=generate_embeddings
+            )
+
+            # Formatear respuesta según resultado
+            if result["success"]:
+                data = result["result"]
+
+                # Extraer estadísticas
+                records_count = len(data['result']['data'])
+                confidence_score = data['result']['confidence_score']
+                processing_time = data.get('processing_time_seconds', 0)
+                selected_rag = data['selected_rag'].upper()
+
+                # Información de imágenes (si aplica)
+                image_info = ""
+                if target_rag == "rag1" and filename.lower().endswith(('.xlsx', '.xls')):
+                    image_info = "\n5. Análisis de imágenes con Azure OpenAI Vision (si hay imágenes embebidas)"
+
+                text_response = (
+                    f"✅ DATOS ESTANDARIZADOS EXITOSAMENTE\n\n"
+                    f"📄 Archivo: {filename}\n"
+                    f"🎯 Formato: {selected_rag}\n"
+                    f"📊 Registros procesados: {records_count}\n"
+                    f"🔍 Confidence Score: {confidence_score:.2f}\n"
+                    f"⏱️  Tiempo de procesamiento: {processing_time}s\n\n"
+                    f"🔄 Pipeline ejecutado (6 pasos):\n"
+                    f"1. Ingesta de datos + extracción de imágenes\n"
+                    f"2. Limpieza de datos\n"
+                    f"3. Identificación de columnas relevantes\n"
+                    f"4. Normalización de estructura{image_info}\n"
+                    f"6. Validación y cálculo de umbral\n\n"
+                    f"📦 Datos listos para usar en sistema RAG"
+                )
+            else:
+                error_msg = result.get('error', 'Error desconocido')
+                text_response = f"❌ ERROR: {error_msg}"
+                logger.error(f"Error en tool execution: {error_msg}")
+
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"content": [{"type": "text", "text": text_response}]}
+            }
+
+        except Exception as e:
+            logger.error(f"Error ejecutando tool: {e}", exc_info=True)
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {"code": -32603, "message": f"Tool execution failed: {str(e)}"}
+            }
+
+    else:
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"}
+        }

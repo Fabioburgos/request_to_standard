@@ -33,13 +33,14 @@ CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos →
 ```
 request-to-standard/
 ├── main.py                    # FastAPI app (ejecución local)
-├── handler.py                 # Lambda handler (AWS)
-├── mcp_server.py             # MCP server (futuro agente orquestador)
+├── handler.py                 # ✅ MCP Wrapper Handler (AWS Lambda)
 ├── custom_logging.py         # Logging personalizado
 ├── requirements.txt          # Dependencias Python
 ├── .env.example             # Ejemplo de variables de entorno
+├── MCP_INTEGRATION.md        # ✅ Guía de integración MCP
 ├── src/
-│   ├── api/                  # Routes FastAPI
+│   ├── tools/                # ✅ MCP Tools
+│   │   └── standardize_tool.py  # ✅ Tool: standardize_data
 │   ├── core/                 # Pipeline de procesamiento
 │   │   ├── ingestion.py     # Step 1: Ingesta + extracción de imágenes
 │   │   ├── cleaning.py      # Step 2: Limpieza
@@ -57,7 +58,6 @@ request-to-standard/
 │   │   ├── rag2_schema.py   # Schema RAG 2
 │   │   ├── request_models.py
 │   │   └── response_models.py
-│   ├── mcp/                  # MCP tools (futuro)
 │   └── utils/                # Utilidades
 │       ├── file_handlers.py
 │       ├── image_extractor.py  # ✨ Extracción de imágenes de XLSX
@@ -296,19 +296,22 @@ functions:
             - suffix: .csv
 ```
 
-### MCP Server (Futuro)
+### MCP Server - Integración con Orquestador
 
-El servidor MCP está preparado como placeholder para integración futura con el agente orquestador.
+✅ **IMPLEMENTADO** - Este servicio funciona como MCP Server para el agente orquestador.
 
-```bash
-# Cuando esté listo
-python mcp_server.py
+**Configuración en el orquestador:**
+```json
+MCP_WRAPPERS: {
+  "request-to-standard": "dev-mcp-wrapper-request-to-standard"
+}
 ```
 
-**Tools disponibles:**
-- `standardize_data`: Estandarizar archivo
-- `analyze_structure`: Analizar estructura
-- `get_schemas`: Obtener esquemas
+**Tool MCP disponible:**
+- `standardize_data`: Estandariza archivos CSV/XLSX a formato RAG1 o RAG2
+
+**Documentación completa de integración:**
+Ver [MCP_INTEGRATION.md](MCP_INTEGRATION.md) para detalles de uso, parámetros, ejemplos y despliegue
 
 ## Pipeline de Procesamiento
 

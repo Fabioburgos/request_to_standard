@@ -1,0 +1,59 @@
+# Entorno virtual de Python
+venv/
+.venv/
+ENV/
+
+# Archivos sensibles con credenciales
+.env
+.env.example
+
+# Scripts de despliegue y herramientas locales
+Makefile
+*.sh
+.dockerignore
+Dockerfile
+.gitignore
+
+# Testing
+tests/
+test_*.py
+*_test.py
+
+# Archivos de desarrollo local (FastAPI para testing)
+main.py
+
+# Documentación
+README.md
+*.md
+docs/
+IMAGE_ANALYSIS_FEATURE.md
+MCP_INTEGRATION.md
+CHANGELOG_MCP.md
+
+# Archivos de Git
+.git/
+.github/
+
+# Archivos compilados y cache de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# Archivos de configuración de IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de logs
+*.log
+
+# Archivos de datos de ejemplo
+*.csv
+*.xlsx
+*.xls
+!example.csv

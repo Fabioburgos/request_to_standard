@@ -70,3 +70,7 @@ uploads/
 *.xlsx
 !tests/fixtures/*.csv
 !tests/fixtures/*.xlsx
+
+# Archivos de configuración de contenedores
+Makefile
+verify_setup.sh
