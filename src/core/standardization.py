@@ -63,9 +63,9 @@ class DataStandardization:
         for idx, record in enumerate(standardized_records):
             try:
                 if target_rag == "rag1":
-                    validated = self._create_rag1_record(record, generate_embeddings)
+                    validated = await self._create_rag1_record(record, generate_embeddings)
                 else:
-                    validated = self._create_rag2_record(record, generate_embeddings)
+                    validated = await self._create_rag2_record(record, generate_embeddings)
 
                 validated_records.append(validated)
             except Exception as e:
@@ -455,7 +455,7 @@ class DataStandardization:
         """Genera ID único usando UUID"""
         return str(uuid.uuid4())
 
-    def _create_rag1_record(
+    async def _create_rag1_record(
         self,
         record: Dict[str, Any],
         generate_embedding: bool
@@ -471,14 +471,29 @@ class DataStandardization:
             "texto": str(record.get("texto", "")),
             "image_caption": str(record.get("image_caption")) if record.get("image_caption") else None,
             "keywords": str(record.get("keywords")) if record.get("keywords") else None,
-            "embedding": record.get("embedding")
+            "embedding": None
         }
+
+        # Generar embedding si se solicita
+        if generate_embedding:
+            try:
+                # Concatenar campos relevantes para el embedding
+                text_for_embedding = f"{normalized_record['titulo']}. {normalized_record['texto']}"
+                if normalized_record.get('keywords'):
+                    text_for_embedding += f". Keywords: {normalized_record['keywords']}"
+
+                embedding_vector = await self.llm_client.generate_embedding(text_for_embedding)
+                normalized_record["embedding"] = embedding_vector
+                logger.info(f"Embedding generado para registro {normalized_record['id']} ({len(embedding_vector)} dimensiones)")
+            except Exception as e:
+                logger.warning(f"Error generando embedding para registro {normalized_record['id']}: {e}")
+                normalized_record["embedding"] = None
 
         # Validar con Pydantic
         rag1_obj = RAG1Schema(**normalized_record)
         return rag1_obj.model_dump()
 
-    def _create_rag2_record(
+    async def _create_rag2_record(
         self,
         record: Dict[str, Any],
         generate_embedding: bool
@@ -493,8 +508,21 @@ class DataStandardization:
             "categoria": str(record.get("categoria", "General")),
             "subcategoria": str(record.get("subcategoria", "General")),
             "fuente": str(record.get("fuente", "csv")),
-            "embedding": record.get("embedding")
+            "embedding": None
         }
+
+        # Generar embedding si se solicita
+        if generate_embedding:
+            try:
+                # Concatenar campos relevantes para el embedding
+                text_for_embedding = f"{normalized_record['descripcion']}. Tipo: {normalized_record['tipo']}. Servicio: {normalized_record['servicio']}"
+
+                embedding_vector = await self.llm_client.generate_embedding(text_for_embedding)
+                normalized_record["embedding"] = embedding_vector
+                logger.info(f"Embedding generado para registro {normalized_record['id']} ({len(embedding_vector)} dimensiones)")
+            except Exception as e:
+                logger.warning(f"Error generando embedding para registro {normalized_record['id']}: {e}")
+                normalized_record["embedding"] = None
 
         # Validar con Pydantic
         rag2_obj = RAG2Schema(**normalized_record)

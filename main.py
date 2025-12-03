@@ -127,6 +127,10 @@ async def standardize_data(
     generate_embeddings: bool = Form(
         False,
         description = "Generar embeddings para los datos (requiere configuración de embeddings)"
+    ),
+    save_to_knowledge_base: bool = Form(
+        True,
+        description = "Guardar datos estandarizados en PostgreSQL como base de conocimiento"
     )
 ):
     """
@@ -176,7 +180,8 @@ async def standardize_data(
             filename = file.filename,
             file_size = file_size,
             target_rag = target_rag,
-            generate_embeddings = generate_embeddings
+            generate_embeddings = generate_embeddings,
+            save_to_db = save_to_knowledge_base
         )
 
         return result

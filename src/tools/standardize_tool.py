@@ -5,7 +5,8 @@ Expone funcionalidad de estandarización al orquestador
 import os
 import base64
 import logging
-from typing import Literal, Optional
+from typing import Literal
+from src.core.pipeline import StandardizationPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,8 @@ def get_tool_definition():
     from mcp.types import Tool
 
     return Tool(
-        name="standardize_data",
-        description=(
+        name = "standardize_data",
+        description = (
             "Estandariza archivos CSV/XLSX a formatos RAG optimizados con análisis automático de imágenes mediante AI.\n\n"
 
             "CASOS DE USO PRINCIPALES:\n"
@@ -77,7 +78,7 @@ def get_tool_definition():
             "• result: Objeto con datos estandarizados, metadatos, confidence_score\n"
             "• Tiempo de procesamiento y estadísticas detalladas"
         ),
-        inputSchema={
+        inputSchema = {
             "type": "object",
             "properties": {
                 "file_content": {
@@ -95,7 +96,12 @@ def get_tool_definition():
                 },
                 "generate_embeddings": {
                     "type": "boolean",
-                    "description": "Si se deben generar embeddings para los datos. Default: false. Requiere configuración de Azure OpenAI Embeddings"
+                    "description": "Si se deben generar embeddings para los datos. Default: true. Requiere configuración de Azure OpenAI Embeddings",
+                    "default": True
+                },
+                "save_to_knowledge_base": {
+                    "type": "boolean",
+                    "description": "Si se deben guardar los datos estandarizados en PostgreSQL. Default: true. Los datos se guardan según el schema RAG1 o RAG2"
                 }
             },
             "required": ["file_content", "filename", "target_rag"]
@@ -107,7 +113,8 @@ async def invoke_standardize_tool(
     file_content: str,
     filename: str,
     target_rag: Literal["rag1", "rag2"],
-    generate_embeddings: bool = False
+    generate_embeddings: bool = True,
+    save_to_knowledge_base: bool = True
 ) -> dict:
     """
     Invoca el pipeline de estandarización de datos.
@@ -117,6 +124,7 @@ async def invoke_standardize_tool(
         filename: Nombre del archivo (debe terminar en .csv o .xlsx)
         target_rag: Formato objetivo ('rag1' o 'rag2')
         generate_embeddings: Si generar embeddings (default: False)
+        save_to_knowledge_base: Si guardar en PostgreSQL (default: True)
 
     Returns:
         dict con:
@@ -191,15 +199,14 @@ async def invoke_standardize_tool(
         # Ejecutar pipeline de estandarización
         logger.info("Iniciando pipeline de estandarización...")
 
-        from src.core.pipeline import StandardizationPipeline
-
         pipeline = StandardizationPipeline()
         result = await pipeline.process(
-            file_content=file_bytes,
-            filename=filename,
-            file_size=file_size,
-            target_rag=target_rag,
-            generate_embeddings=generate_embeddings
+            file_content = file_bytes,
+            filename = filename,
+            file_size = file_size,
+            target_rag = target_rag,
+            generate_embeddings = generate_embeddings,
+            save_to_db = save_to_knowledge_base
         )
 
         logger.info(f"Pipeline completado exitosamente")

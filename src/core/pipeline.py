@@ -3,17 +3,18 @@ Pipeline Principal de Estandarización
 Orquesta todos los pasos del diagrama de flujo
 """
 import time
+import os
 from src.core.cleaning import DataCleaning
 from src.core.ingestion import DataIngestion
 from src.models.request_models import FileInfo
 from src.core.validation import DataValidation
-from src.models.rag1_schema import RAG1Response
-from src.models.rag2_schema import RAG2Response
 from src.utils.file_handlers import FileHandler
 from src.core.normalization import DataNormalization
 from typing import Union, BinaryIO, Literal
 from src.core.standardization import DataStandardization
 from src.models.response_models import StandardizationResponse
+from src.storage.postgres_storage import PostgreSQLStorage
+from src.utils.json_utils import clean_for_json
 from custom_logging import get_logger
 
 logger = get_logger(__name__)
@@ -36,10 +37,11 @@ class StandardizationPipeline:
         filename: str,
         file_size: int,
         target_rag: Literal["rag1", "rag2"],
-        generate_embeddings: bool = False
+        generate_embeddings: bool = False,
+        save_to_db: bool = True
     ) -> StandardizationResponse:
         """
-        Ejecuta pipeline simplificado de estandarización
+        Ejecuta pipeline completo de estandarización + guardado en PostgreSQL
 
         Args:
             file_content: Contenido del archivo
@@ -47,6 +49,7 @@ class StandardizationPipeline:
             file_size: Tamaño del archivo en bytes
             target_rag: RAG objetivo ("rag1" o "rag2")
             generate_embeddings: Generar embeddings
+            save_to_db: Guardar en base de conocimiento PostgreSQL (default: True)
 
         Returns:
             StandardizationResponse con datos estandarizados
@@ -118,8 +121,38 @@ class StandardizationPipeline:
             quality_score = self.validation.calculate_quality_score(validation_result)
 
             # Limpiar datos para JSON (timestamps, NaN, etc.) ANTES de Pydantic
-            from src.utils.json_utils import clean_for_json
             standardized_records_clean = clean_for_json(standardized_records)
+
+            # STEP 7: Guardar en PostgreSQL como base de conocimiento
+            storage_result = None
+            if save_to_db:
+                logger.info("STEP 7: Guardando en base de conocimiento (PostgreSQL)")
+                try:
+                    # Obtener CLIENT_ID de variables de entorno (multi-tenant)
+                    client_id = os.getenv('CLIENT_ID')
+
+                    # Crear storage (auto-provisioning si es necesario)
+                    storage = PostgreSQLStorage(client_id=client_id)
+                    storage_result = await storage.save_to_knowledge_base(
+                        records = standardized_records_clean,
+                        rag_type = target_rag
+                    )
+
+                    logger.info(f"STEP 7: Guardado completado - {storage_result['saved']}/{storage_result['total_records']} registros en '{storage_result['table']}'")
+
+                    # Cerrar conexión
+                    await storage.close()
+
+                except Exception as storage_error:
+                    logger.error(f"Error guardando en PostgreSQL: {str(storage_error)}", exc_info=True)
+                    # No fallar el pipeline completo si falla el guardado
+                    storage_result = {
+                        "error": str(storage_error),
+                        "saved": 0,
+                        "failed": len(standardized_records_clean)
+                    }
+            else:
+                logger.info("STEP 7: Saltado (save_to_db=False)")
             column_mapping_clean = clean_for_json(column_mapping)
             validation_result_clean = clean_for_json(validation_result)
 
@@ -130,7 +163,8 @@ class StandardizationPipeline:
                     "data": standardized_records_clean,
                     "metadata": {
                         "column_mapping": column_mapping_clean,
-                        "validation": validation_result_clean
+                        "validation": validation_result_clean,
+                        "storage": storage_result  # Info del guardado en PostgreSQL
                     },
                     "confidence_score": quality_score
                 }
@@ -140,7 +174,8 @@ class StandardizationPipeline:
                     "data": standardized_records_clean,
                     "metadata": {
                         "column_mapping": column_mapping_clean,
-                        "validation": validation_result_clean
+                        "validation": validation_result_clean,
+                        "storage": storage_result  # Info del guardado en PostgreSQL
                     },
                     "confidence_score": quality_score
                 }
@@ -150,12 +185,12 @@ class StandardizationPipeline:
 
             # Construir respuesta final
             response = StandardizationResponse(
-                success=validation_result["is_valid"],
-                message=f"Datos estandarizados exitosamente a formato {target_rag.upper()}",
-                selected_rag=target_rag,
-                file_info=file_info,
-                result=result,
-                processing_time_seconds=round(processing_time, 2)
+                success = validation_result["is_valid"],
+                message = f"Datos estandarizados exitosamente a formato {target_rag.upper()}",
+                selected_rag = target_rag,
+                file_info = file_info,
+                result = result,
+                processing_time_seconds = round(processing_time, 2)
             )
 
             logger.info(f"Pipeline completado exitosamente en {processing_time:.2f}s - RAG: {target_rag.upper()}, Registros: {len(standardized_records)}")
@@ -167,7 +202,6 @@ class StandardizationPipeline:
             logger.error(f"Error en pipeline después de {processing_time:.2f}s: {str(e)}", exc_info=True)
 
             # Para mantener la estructura, crear respuesta mínima
-            from src.models.response_models import ErrorResponse
             raise Exception(f"Error en pipeline: {str(e)}")
 
     def _generate_column_mapping(self, df, target_rag: str) -> dict:

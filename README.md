@@ -7,7 +7,7 @@ Servicio de estandarización de datos que convierte archivos CSV/XLSX a formatos
 Este proyecto implementa un pipeline completo de estandarización de datos siguiendo el flujo:
 
 ```
-CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos → Routing (RAG1/RAG2) → Estandarización → Análisis de Imágenes (AI) → Validación → Output
+CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos → Routing (RAG1/RAG2) → Estandarización → Análisis de Imágenes (AI) → Validación → PostgreSQL (Knowledge Base) → Output
 ```
 
 ### ✨ Características Destacadas
@@ -16,6 +16,7 @@ CSV/XLSX → Ingesta → Limpieza → Normalización → Análisis Metadatos →
 - **Análisis de Imágenes con AI**: Extrae automáticamente descripciones de imágenes embebidas en archivos Excel
 - **Procesamiento con Azure OpenAI**: Usa modelos avanzados de lenguaje y visión
 - **Validación Automática**: Verifica integridad y calcula umbrales de confianza
+- **💾 Base de Conocimiento PostgreSQL**: Guarda automáticamente datos estandarizados siguiendo los schemas RAG1/RAG2
 
 ### Formatos RAG
 
@@ -37,7 +38,6 @@ request-to-standard/
 ├── custom_logging.py         # Logging personalizado
 ├── requirements.txt          # Dependencias Python
 ├── .env.example             # Ejemplo de variables de entorno
-├── MCP_INTEGRATION.md        # ✅ Guía de integración MCP
 ├── src/
 │   ├── tools/                # ✅ MCP Tools
 │   │   └── standardize_tool.py  # ✅ Tool: standardize_data
@@ -50,6 +50,8 @@ request-to-standard/
 │   │   ├── standardization.py # Step 5: Estandarización + análisis de imágenes
 │   │   ├── validation.py    # Step 6: Validación
 │   │   └── pipeline.py      # Orquestador principal
+│   ├── storage/              # 💾 Persistencia
+│   │   └── postgres_storage.py  # Guardado en PostgreSQL
 │   ├── gpt/                  # Azure OpenAI
 │   │   ├── client.py        # Cliente Azure OpenAI + Vision API
 │   │   └── prompts.py       # Templates de prompts (texto + visión)
@@ -95,6 +97,7 @@ pip install -r requirements.txt
 - `Pillow` - ✨ Procesamiento de imágenes
 - `openai` - Cliente Azure OpenAI (incluye Vision API)
 - `pydantic` - Validación de esquemas
+- `asyncpg` - 💾 Cliente asíncrono PostgreSQL
 
 ### 3. Configurar variables de entorno
 

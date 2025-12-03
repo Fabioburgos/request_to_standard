@@ -51,7 +51,7 @@ async def handle_method(method: str, params: dict, msg_id):
     """Maneja métodos MCP: tools/list y tools/call"""
 
     if method == "tools/list":
-        logger.info("✅ Listing tools")
+        logger.info("Listing tools")
         tool_def = get_tool_definition()
         return {
             "jsonrpc": "2.0",
@@ -66,7 +66,7 @@ async def handle_method(method: str, params: dict, msg_id):
         }
 
     elif method == "tools/call":
-        logger.info("✅ Calling tool")
+        logger.info("Calling tool")
         tool_name = params.get('name')
         arguments = params.get('arguments', {})
 
@@ -82,20 +82,23 @@ async def handle_method(method: str, params: dict, msg_id):
             file_content = arguments.get('file_content')
             filename = arguments.get('filename')
             target_rag = arguments.get('target_rag')
-            generate_embeddings = arguments.get('generate_embeddings', False)
+            generate_embeddings = arguments.get('generate_embeddings', True)  # Default: True
+            save_to_knowledge_base = arguments.get('save_to_knowledge_base', True)
 
             logger.info(f"Argumentos recibidos:")
             logger.info(f"  - filename: {filename}")
             logger.info(f"  - target_rag: {target_rag}")
             logger.info(f"  - generate_embeddings: {generate_embeddings}")
+            logger.info(f"  - save_to_knowledge_base: {save_to_knowledge_base}")
             logger.info(f"  - file_content: {len(file_content) if file_content else 0} caracteres base64")
 
             # Invocar la tool
             result = await invoke_standardize_tool(
-                file_content=file_content,
-                filename=filename,
-                target_rag=target_rag,
-                generate_embeddings=generate_embeddings
+                file_content = file_content,
+                filename = filename,
+                target_rag = target_rag,
+                generate_embeddings = generate_embeddings,
+                save_to_knowledge_base = save_to_knowledge_base
             )
 
             # Formatear respuesta según resultado
@@ -113,24 +116,39 @@ async def handle_method(method: str, params: dict, msg_id):
                 if target_rag == "rag1" and filename.lower().endswith(('.xlsx', '.xls')):
                     image_info = "\n5. Análisis de imágenes con Azure OpenAI Vision (si hay imágenes embebidas)"
 
+                # Información de guardado en PostgreSQL
+                storage_info = data['result']['metadata'].get('storage')
+                db_status = ""
+                if storage_info:
+                    if storage_info.get('saved', 0) > 0:
+                        db_status = f"\n\nBASE DE CONOCIMIENTO (PostgreSQL):\n"
+                        db_status += f"Tabla: {storage_info.get('table', 'N/A')}\n"
+                        db_status += f"Registros guardados: {storage_info['saved']}/{storage_info['total_records']}"
+                        if storage_info.get('failed', 0) > 0:
+                            db_status += f"\nFallos: {storage_info['failed']}"
+                    elif storage_info.get('error'):
+                        db_status = f"\n\nError guardando en PostgreSQL: {storage_info['error']}"
+                else:
+                    db_status = "\n\nDatos estandarizados (no guardados en DB)"
+
                 text_response = (
-                    f"✅ DATOS ESTANDARIZADOS EXITOSAMENTE\n\n"
-                    f"📄 Archivo: {filename}\n"
-                    f"🎯 Formato: {selected_rag}\n"
-                    f"📊 Registros procesados: {records_count}\n"
-                    f"🔍 Confidence Score: {confidence_score:.2f}\n"
-                    f"⏱️  Tiempo de procesamiento: {processing_time}s\n\n"
-                    f"🔄 Pipeline ejecutado (6 pasos):\n"
+                    f"DATOS ESTANDARIZADOS EXITOSAMENTE\n\n"
+                    f"Archivo: {filename}\n"
+                    f"Formato: {selected_rag}\n"
+                    f"Registros procesados: {records_count}\n"
+                    f"Confidence Score: {confidence_score:.2f}\n"
+                    f"Tiempo de procesamiento: {processing_time}s\n\n"
+                    f"Pipeline ejecutado (7 pasos):\n"
                     f"1. Ingesta de datos + extracción de imágenes\n"
                     f"2. Limpieza de datos\n"
                     f"3. Identificación de columnas relevantes\n"
                     f"4. Normalización de estructura{image_info}\n"
-                    f"6. Validación y cálculo de umbral\n\n"
-                    f"📦 Datos listos para usar en sistema RAG"
+                    f"6. Validación y cálculo de umbral\n"
+                    f"7. Guardado en base de conocimiento (PostgreSQL){db_status}"
                 )
             else:
                 error_msg = result.get('error', 'Error desconocido')
-                text_response = f"❌ ERROR: {error_msg}"
+                text_response = f"ERROR: {error_msg}"
                 logger.error(f"Error en tool execution: {error_msg}")
 
             return {
