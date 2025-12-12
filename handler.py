@@ -1,6 +1,5 @@
-# handler.py (MCP WRAPPER)
+# handler.py (MCP WRAPPER) - MULTI-TENANT VERSION
 
-import json
 import logging
 import asyncio
 from src.tools.standardize_tool import invoke_standardize_tool, get_tool_definition
@@ -10,18 +9,18 @@ logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
     """
-    Handler MCP para invocación directa desde Lambda
+    Handler MCP para invocación directa desde Lambda - MULTI-TENANT
 
     El orquestador invoca esta Lambda usando JSON-RPC 2.0 con:
     - method: "tools/list" o "tools/call"
-    - params: argumentos de la tool
+    - params: argumentos de la tool (incluyendo client_id)
     - id: identificador del mensaje
 
     Configuración en orquestador:
     MCP_WRAPPERS: {"request-to-standard": "dev-mcp-wrapper-request-to-standard"}
     """
     try:
-        logger.info("=== MCP Wrapper Handler - Request to Standard ===")
+        logger.info("=== MCP Wrapper Handler - Request to Standard (Multi-Tenant) ===")
 
         method = event.get('method')
         params = event.get('params', {})
@@ -78,22 +77,47 @@ async def handle_method(method: str, params: dict, msg_id):
             }
 
         try:
-            # Extraer argumentos
+            # ================================================================
+            # MULTI-TENANT: Extraer client_id (CRÍTICO)
+            # ================================================================
+            client_id = arguments.get('client_id')
+            
+            if not client_id:
+                error_msg = (
+                    "ERROR: client_id es requerido pero no fue proporcionado.\n\n"
+                    "El orquestador debe inyectar client_id automáticamente desde DynamoDB."
+                )
+                logger.error(f"[MULTI-TENANT] {error_msg}")
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "error": {"code": -32602, "message": error_msg}
+                }
+            
+            logger.info(f"[MULTI-TENANT] client_id: {client_id}")
+            
+            # ================================================================
+            # Extraer argumentos restantes
+            # ================================================================
             file_content = arguments.get('file_content')
             filename = arguments.get('filename')
             target_rag = arguments.get('target_rag')
-            generate_embeddings = arguments.get('generate_embeddings', True)  # Default: True
+            generate_embeddings = arguments.get('generate_embeddings', True)
             save_to_knowledge_base = arguments.get('save_to_knowledge_base', True)
 
             logger.info(f"Argumentos recibidos:")
+            logger.info(f"  - client_id: {client_id}")
             logger.info(f"  - filename: {filename}")
             logger.info(f"  - target_rag: {target_rag}")
             logger.info(f"  - generate_embeddings: {generate_embeddings}")
             logger.info(f"  - save_to_knowledge_base: {save_to_knowledge_base}")
             logger.info(f"  - file_content: {len(file_content) if file_content else 0} caracteres base64")
 
-            # Invocar la tool
+            # ================================================================
+            # Invocar la tool con client_id
+            # ================================================================
             result = await invoke_standardize_tool(
+                client_id = client_id,  # ← NUEVO: Pasar client_id
                 file_content = file_content,
                 filename = filename,
                 target_rag = target_rag,
@@ -122,6 +146,8 @@ async def handle_method(method: str, params: dict, msg_id):
                 if storage_info:
                     if storage_info.get('saved', 0) > 0:
                         db_status = f"\n\nBASE DE CONOCIMIENTO (PostgreSQL):\n"
+                        db_status += f"Cliente: {client_id}\n"  # ← NUEVO: Mostrar cliente
+                        db_status += f"Schema: kb_{client_id}\n"  # ← NUEVO: Mostrar schema
                         db_status += f"Tabla: {storage_info.get('table', 'N/A')}\n"
                         db_status += f"Registros guardados: {storage_info['saved']}/{storage_info['total_records']}"
                         if storage_info.get('failed', 0) > 0:
@@ -133,6 +159,7 @@ async def handle_method(method: str, params: dict, msg_id):
 
                 text_response = (
                     f"DATOS ESTANDARIZADOS EXITOSAMENTE\n\n"
+                    f"Cliente: {client_id}\n"  # ← NUEVO: Info del cliente
                     f"Archivo: {filename}\n"
                     f"Formato: {selected_rag}\n"
                     f"Registros procesados: {records_count}\n"

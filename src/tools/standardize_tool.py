@@ -1,6 +1,6 @@
 """
-Tool MCP: Estandarización de Datos
-Expone funcionalidad de estandarización al orquestador
+Tool MCP: Estandarización de Datos - MULTI-TENANT VERSION
+Expone funcionalidad de estandarización al orquestador con soporte multi-tenant
 """
 import os
 import base64
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def get_tool_definition():
     """
-    Retorna la definición de la herramienta MCP.
+    Retorna la definición de la herramienta MCP - MULTI-TENANT VERSION
     """
     from mcp.types import Tool
 
@@ -20,32 +20,38 @@ def get_tool_definition():
         name = "standardize_data",
         description = (
             "Estandariza archivos CSV/XLSX a formatos RAG optimizados con análisis automático de imágenes mediante AI.\n\n"
+            
+            "MULTI-TENANT: Esta herramienta requiere client_id para aislamiento de datos por cliente.\n\n"
 
             "CASOS DE USO PRINCIPALES:\n"
             "• Convertir datos no estructurados a formato RAG 1 (documentos legales, artículos, normativas)\n"
             "• Convertir datos no estructurados a formato RAG 2 (tickets de soporte, servicios, solicitudes)\n"
             "• Análisis automático de imágenes embebidas en archivos XLSX con Azure OpenAI Vision\n"
             "• Validación de estructura y cálculo de umbral de confianza\n"
-            "• Generación de embeddings (opcional)\n\n"
+            "• Generación de embeddings (opcional)\n"
+            "• Guardado en base de conocimiento PostgreSQL con schema isolation\n\n"
 
-            "PROCESO AUTOMÁTICO (PIPELINE DE 6 PASOS):\n"
+            "PROCESO AUTOMÁTICO (PIPELINE DE 7 PASOS):\n"
             "1. Ingesta de datos + extracción de imágenes embebidas (solo XLSX)\n"
             "2. Limpieza y preprocesamiento de datos\n"
             "3. Identificación de columnas relevantes\n"
             "4. Normalización de estructura\n"
             "5. Estandarización a formato RAG + análisis de imágenes con AI\n"
-            "6. Validación y cálculo de confidence_score\n\n"
+            "6. Validación y cálculo de confidence_score\n"
+            "7. Guardado en PostgreSQL con schema específico del cliente (kb_<client_id>)\n\n"
 
             "FORMATOS RAG DISPONIBLES:\n"
             "• RAG 1: Documentos estructurados\n"
             "  - Campos: id, articulo_id, tipo, numero, titulo, texto, image_caption, keywords, embedding\n"
             "  - Uso: Leyes, artículos, normativas, documentación formal\n"
             "  - Análisis de imágenes: Activo (genera image_caption automáticamente)\n"
+            "  - Tabla: kb_<client_id>.knowledge_base_rag1\n"
             "\n"
             "• RAG 2: Servicios/Tickets\n"
             "  - Campos: id, descripcion, tipo, servicio, categoria, subcategoria, fuente, embedding\n"
             "  - Uso: Tickets de soporte, solicitudes, incidentes, servicios\n"
-            "  - Análisis de imágenes: No aplicable\n\n"
+            "  - Análisis de imágenes: No aplicable\n"
+            "  - Tabla: kb_<client_id>.knowledge_base_rag2\n\n"
 
             "ANÁLISIS AUTOMÁTICO DE IMÁGENES (solo RAG 1 + XLSX):\n"
             "• Extrae imágenes embebidas de archivos Excel\n"
@@ -54,18 +60,27 @@ def get_tool_definition():
             "• Popula automáticamente el campo image_caption\n"
             "• Soporta múltiples imágenes por fila\n\n"
 
+            "MULTI-TENANT - SCHEMA ISOLATION:\n"
+            "• Cada cliente tiene su propio schema en PostgreSQL: kb_<client_id>\n"
+            "• Aislamiento completo de datos entre clientes\n"
+            "• Auto-provisioning: Crea schema y tablas automáticamente si no existen\n"
+            "• Ejemplo: client_id='helpdesk_ivanti' → schema='kb_helpdesk_ivanti'\n\n"
+
             "PARÁMETROS DE ENTRADA:\n"
+            "• client_id (requerido): ID del cliente para schema isolation (ej: 'helpdesk_ivanti')\n"
             "• file_content (requerido): Contenido del archivo en base64\n"
             "• filename (requerido): Nombre del archivo (ej: datos.csv, documentos.xlsx)\n"
             "• target_rag (requerido): 'rag1' para documentos, 'rag2' para servicios\n"
-            "• generate_embeddings (opcional): true para generar embeddings, false por defecto\n\n"
+            "• generate_embeddings (opcional): true para generar embeddings, false por defecto\n"
+            "• save_to_knowledge_base (opcional): true para guardar en PostgreSQL, true por defecto\n\n"
 
             "USAR CUANDO:\n"
             "• Necesitas estructurar datos de clientes en formatos estándar\n"
             "• Preparar documentos para sistemas RAG (Retrieval-Augmented Generation)\n"
             "• Analizar imágenes procedurales automáticamente\n"
             "• Convertir Excel/CSV a JSON estructurado\n"
-            "• Validar calidad de datos con scoring automático\n\n"
+            "• Validar calidad de datos con scoring automático\n"
+            "• Guardar en base de conocimiento con aislamiento por cliente\n\n"
 
             "NO USAR para:\n"
             "• Archivos que NO son CSV o XLSX\n"
@@ -76,40 +91,69 @@ def get_tool_definition():
             "RESPUESTA:\n"
             "• success: boolean indicando éxito/fallo\n"
             "• result: Objeto con datos estandarizados, metadatos, confidence_score\n"
-            "• Tiempo de procesamiento y estadísticas detalladas"
+            "• Tiempo de procesamiento y estadísticas detalladas\n"
+            "• Información del schema PostgreSQL utilizado"
         ),
         inputSchema = {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "type": "string",
+                    "description": (
+                        "OBLIGATORIO. ID único del cliente para schema isolation en PostgreSQL. "
+                        "FUENTE: El orquestador debe extraer este valor de DynamoDB usando el "
+                        "subscription_id del webhook. Ejemplo: 'helpdesk_ivanti', 'empresa_a'. "
+                        "Este parámetro es CRÍTICO para multi-tenant y aislamiento de datos."
+                    )
+                },
                 "file_content": {
                     "type": "string",
-                    "description": "Contenido del archivo codificado en base64. Ejemplo: base64.b64encode(open('archivo.csv', 'rb').read()).decode('utf-8')"
+                    "description": (
+                        "OBLIGATORIO. Contenido del archivo codificado en base64. "
+                        "Ejemplo: base64.b64encode(open('archivo.csv', 'rb').read()).decode('utf-8')"
+                    )
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Nombre del archivo incluyendo extensión (.csv o .xlsx). Ejemplos: 'datos.csv', 'documentos.xlsx', 'tickets.csv'"
+                    "description": (
+                        "OBLIGATORIO. Nombre del archivo incluyendo extensión (.csv o .xlsx). "
+                        "Ejemplos: 'datos.csv', 'documentos.xlsx', 'tickets.csv'"
+                    )
                 },
                 "target_rag": {
                     "type": "string",
                     "enum": ["rag1", "rag2"],
-                    "description": "Formato de salida objetivo. 'rag1' para documentos estructurados (leyes, artículos), 'rag2' para servicios/tickets"
+                    "description": (
+                        "OBLIGATORIO. Formato de salida objetivo. "
+                        "'rag1' para documentos estructurados (leyes, artículos), "
+                        "'rag2' para servicios/tickets. "
+                        "El orquestador puede inferir esto desde el contenido del email."
+                    )
                 },
                 "generate_embeddings": {
                     "type": "boolean",
-                    "description": "Si se deben generar embeddings para los datos. Default: true. Requiere configuración de Azure OpenAI Embeddings",
+                    "description": (
+                        "Si se deben generar embeddings para los datos. Default: true. "
+                        "Requiere configuración de Azure OpenAI Embeddings"
+                    ),
                     "default": True
                 },
                 "save_to_knowledge_base": {
                     "type": "boolean",
-                    "description": "Si se deben guardar los datos estandarizados en PostgreSQL. Default: true. Los datos se guardan según el schema RAG1 o RAG2"
+                    "description": (
+                        "Si se deben guardar los datos estandarizados en PostgreSQL. Default: true. "
+                        "Los datos se guardan en el schema específico del cliente: kb_<client_id>"
+                    ),
+                    "default": True
                 }
             },
-            "required": ["file_content", "filename", "target_rag"]
+            "required": ["client_id", "file_content", "filename", "target_rag"]
         }
     )
 
 
 async def invoke_standardize_tool(
+    client_id: str,  # ← NUEVO: Parámetro client_id
     file_content: str,
     filename: str,
     target_rag: Literal["rag1", "rag2"],
@@ -117,13 +161,14 @@ async def invoke_standardize_tool(
     save_to_knowledge_base: bool = True
 ) -> dict:
     """
-    Invoca el pipeline de estandarización de datos.
+    Invoca el pipeline de estandarización de datos - MULTI-TENANT VERSION
 
     Args:
+        client_id: ID del cliente para schema isolation (NUEVO)
         file_content: Contenido del archivo en base64
         filename: Nombre del archivo (debe terminar en .csv o .xlsx)
         target_rag: Formato objetivo ('rag1' o 'rag2')
-        generate_embeddings: Si generar embeddings (default: False)
+        generate_embeddings: Si generar embeddings (default: True)
         save_to_knowledge_base: Si guardar en PostgreSQL (default: True)
 
     Returns:
@@ -133,12 +178,41 @@ async def invoke_standardize_tool(
             - error: str con mensaje de error (si success=False)
     """
     try:
-        logger.info(f"=== Invocando Standardize Tool ===")
+        logger.info(f"=== Invocando Standardize Tool (Multi-Tenant) ===")
+        logger.info(f"Cliente: {client_id}")  # ← NUEVO: Log del cliente
         logger.info(f"Archivo: {filename}")
         logger.info(f"Target RAG: {target_rag.upper()}")
         logger.info(f"Generate Embeddings: {generate_embeddings}")
 
+        # ================================================================
+        # VALIDACIÓN CRÍTICA: client_id
+        # ================================================================
+        if not client_id:
+            logger.error("client_id es None o vacío")
+            return {
+                'success': False,
+                'error': (
+                    'client_id es requerido pero no fue proporcionado. '
+                    'El orquestador debe inyectar client_id desde DynamoDB.'
+                )
+            }
+
+        # Validar formato de client_id (opcional pero recomendado)
+        if not client_id.replace('_', '').replace('-', '').isalnum():
+            logger.error(f"client_id tiene formato inválido: {client_id}")
+            return {
+                'success': False,
+                'error': (
+                    f'client_id inválido: {client_id}. '
+                    f'Solo se permiten letras, números, guiones y guiones bajos.'
+                )
+            }
+
+        logger.info(f"[MULTI-TENANT] client_id validado: {client_id}")
+
+        # ================================================================
         # Validar que file_content no sea None o vacío
+        # ================================================================
         if not file_content:
             logger.error("file_content es None o vacío")
             return {
@@ -196,11 +270,15 @@ async def invoke_standardize_tool(
                 'error': f'Archivo muy grande. Máximo: {max_size_mb}MB, recibido: {file_size / 1024 / 1024:.2f}MB'
             }
 
-        # Ejecutar pipeline de estandarización
+        # ================================================================
+        # Ejecutar pipeline de estandarización con client_id
+        # ================================================================
         logger.info("Iniciando pipeline de estandarización...")
+        logger.info(f"[MULTI-TENANT] Schema PostgreSQL: kb_{client_id}")
 
         pipeline = StandardizationPipeline()
         result = await pipeline.process(
+            client_id = client_id,  # ← NUEVO: Pasar client_id al pipeline
             file_content = file_bytes,
             filename = filename,
             file_size = file_size,
@@ -210,6 +288,7 @@ async def invoke_standardize_tool(
         )
 
         logger.info(f"Pipeline completado exitosamente")
+        logger.info(f"Cliente: {client_id}")  # ← NUEVO: Log del cliente
         logger.info(f"RAG seleccionado: {result.selected_rag.upper()}")
         logger.info(f"Registros procesados: {len(result.result['data'])}")
         logger.info(f"Confidence Score: {result.result['confidence_score']:.2f}")

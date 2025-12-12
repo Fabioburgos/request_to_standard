@@ -57,18 +57,74 @@ class PostgreSQLStorage:
         # Aurora DSQL: Usar siempre DB 'postgres' (única DB permitida)
         # Multi-tenant: Usar SCHEMAS en lugar de múltiples DBs
         self.database = os.getenv('POSTGRES_DB', 'postgres')
-        self.client_id = client_id or os.getenv('CLIENT_ID')
-
+        
+        # ================================================================
+        # MULTI-TENANT: client_id es OBLIGATORIO
+        # ================================================================
+        # NO usamos fallback a variable de entorno para evitar errores
+        # de aislamiento entre clientes en producción multi-tenant
+        self.client_id = client_id
+        
+        if not self.client_id:
+            raise ValueError(
+                "\n"
+                "════════════════════════════════════════════════════════════════════════\n"
+                "ERROR CRÍTICO: client_id es OBLIGATORIO para PostgreSQLStorage\n"
+                "════════════════════════════════════════════════════════════════════════\n"
+                "\n"
+                "PostgreSQLStorage requiere un client_id explícito para aislamiento\n"
+                "multi-tenant. El client_id se usa para crear schemas aislados en\n"
+                "PostgreSQL (formato: kb_<client_id>).\n"
+                "\n"
+                "Esto previene:\n"
+                "  ❌ Uso accidental del cliente incorrecto\n"
+                "  ❌ Datos guardados en el schema equivocado\n"
+                "  ❌ Violaciones de aislamiento entre clientes\n"
+                "\n"
+                "Solución:\n"
+                "  ✅ storage = PostgreSQLStorage(client_id='nombre_cliente')\n"
+                "\n"
+                "Ejemplo:\n"
+                "  storage = PostgreSQLStorage(client_id='helpdesk_ivanti')\n"
+                "  # Esto creará/usará el schema: kb_helpdesk_ivanti\n"
+                "\n"
+                "════════════════════════════════════════════════════════════════════════\n"
+            )
+        
+        # Validar formato de client_id (solo alfanumérico, guiones y guiones bajos)
+        if not client_id.replace('_', '').replace('-', '').isalnum():
+            raise ValueError(
+                f"\n"
+                f"════════════════════════════════════════════════════════════════════════\n"
+                f"ERROR: client_id tiene formato inválido: '{client_id}'\n"
+                f"════════════════════════════════════════════════════════════════════════\n"
+                f"\n"
+                f"El client_id solo puede contener:\n"
+                f"  ✅ Letras (a-z, A-Z)\n"
+                f"  ✅ Números (0-9)\n"
+                f"  ✅ Guiones (-)\n"
+                f"  ✅ Guiones bajos (_)\n"
+                f"\n"
+                f"Ejemplos válidos:\n"
+                f"  ✅ helpdesk_ivanti\n"
+                f"  ✅ empresa-a\n"
+                f"  ✅ cliente123\n"
+                f"\n"
+                f"Ejemplos inválidos:\n"
+                f"  ❌ cliente@empresa (contiene @)\n"
+                f"  ❌ cliente.123 (contiene .)\n"
+                f"  ❌ cliente/test (contiene /)\n"
+                f"\n"
+                f"════════════════════════════════════════════════════════════════════════\n"
+            )
+        
+        logger.info(f"[MULTI-TENANT] client_id validado: '{self.client_id}'")
+        
         schema_prefix = os.getenv('POSTGRES_SCHEMA_PREFIX', 'kb_')
-
-        if self.client_id:
-            # Schema específico del cliente: kb_empresa1
-            self.schema = f"{schema_prefix}{self.client_id}"
-            logger.info(f"Modo multi-tenant: usando schema '{self.schema}' en DB '{self.database}'")
-        else:
-            # Schema público (default)
-            self.schema = 'public'
-            logger.info(f"Modo single-tenant: usando schema '{self.schema}' en DB '{self.database}'")
+        
+        # Schema específico del cliente: kb_empresa1
+        self.schema = f"{schema_prefix}{self.client_id}"
+        logger.info(f"[MULTI-TENANT] Schema PostgreSQL: '{self.schema}' en DB '{self.database}'")
 
         self.auto_create = os.getenv('POSTGRES_AUTO_CREATE', 'true').lower() == 'true'
         self.pool: Optional[asyncpg.Pool] = None

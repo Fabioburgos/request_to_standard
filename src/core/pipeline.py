@@ -1,6 +1,6 @@
 """
-Pipeline Principal de Estandarización
-Orquesta todos los pasos del diagrama de flujo
+Pipeline Principal de Estandarización - MULTI-TENANT VERSION
+Orquesta todos los pasos del diagrama de flujo con soporte multi-tenant
 """
 import time
 import os
@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 
 class StandardizationPipeline:
-    """Pipeline simplificado de estandarización de datos"""
+    """Pipeline simplificado de estandarización de datos - MULTI-TENANT"""
 
     def __init__(self):
         self.ingestion = DataIngestion()
@@ -33,6 +33,7 @@ class StandardizationPipeline:
 
     async def process(
         self,
+        client_id: str,  # ← NUEVO: Parámetro client_id
         file_content: Union[bytes, BinaryIO],
         filename: str,
         file_size: int,
@@ -41,9 +42,10 @@ class StandardizationPipeline:
         save_to_db: bool = True
     ) -> StandardizationResponse:
         """
-        Ejecuta pipeline completo de estandarización + guardado en PostgreSQL
+        Ejecuta pipeline completo de estandarización + guardado en PostgreSQL - MULTI-TENANT
 
         Args:
+            client_id: ID del cliente para schema isolation (NUEVO)
             file_content: Contenido del archivo
             filename: Nombre del archivo
             file_size: Tamaño del archivo en bytes
@@ -55,7 +57,10 @@ class StandardizationPipeline:
             StandardizationResponse con datos estandarizados
         """
         start_time = time.time()
-        logger.info(f"Iniciando pipeline para archivo: {filename} ({file_size} bytes)")
+        logger.info(f"=== Pipeline Multi-Tenant Iniciado ===")
+        logger.info(f"Cliente: {client_id}")  # ← NUEVO: Log del cliente
+        logger.info(f"Archivo: {filename} ({file_size} bytes)")
+        logger.info(f"Target RAG: {target_rag.upper()}")
 
         try:
             # STEP 1: Ingesta de Datos Cliente (y extracción de imágenes)
@@ -123,36 +128,44 @@ class StandardizationPipeline:
             # Limpiar datos para JSON (timestamps, NaN, etc.) ANTES de Pydantic
             standardized_records_clean = clean_for_json(standardized_records)
 
-            # STEP 7: Guardar en PostgreSQL como base de conocimiento
+            # ================================================================
+            # STEP 7: Guardar en PostgreSQL - MULTI-TENANT
+            # ================================================================
             storage_result = None
             if save_to_db:
                 logger.info("STEP 7: Guardando en base de conocimiento (PostgreSQL)")
+                logger.info(f"[MULTI-TENANT] Usando client_id: {client_id}")
+                logger.info(f"[MULTI-TENANT] Schema PostgreSQL: kb_{client_id}")
+                
                 try:
-                    # Obtener CLIENT_ID de variables de entorno (multi-tenant)
-                    client_id = os.getenv('CLIENT_ID')
-
-                    # Crear storage (auto-provisioning si es necesario)
-                    storage = PostgreSQLStorage(client_id=client_id)
+                    # ============================================================
+                    # CAMBIO CRÍTICO: Usar client_id del parámetro (NO env var)
+                    # ============================================================
+                    storage = PostgreSQLStorage(client_id=client_id)  # ← CAMBIO AQUÍ
                     storage_result = await storage.save_to_knowledge_base(
                         records = standardized_records_clean,
                         rag_type = target_rag
                     )
 
                     logger.info(f"STEP 7: Guardado completado - {storage_result['saved']}/{storage_result['total_records']} registros en '{storage_result['table']}'")
+                    logger.info(f"[MULTI-TENANT] Schema: kb_{client_id}, Tabla: {storage_result['table']}")
 
                     # Cerrar conexión
                     await storage.close()
 
                 except Exception as storage_error:
                     logger.error(f"Error guardando en PostgreSQL: {str(storage_error)}", exc_info=True)
+                    logger.error(f"[MULTI-TENANT] Cliente afectado: {client_id}")
                     # No fallar el pipeline completo si falla el guardado
                     storage_result = {
                         "error": str(storage_error),
                         "saved": 0,
-                        "failed": len(standardized_records_clean)
+                        "failed": len(standardized_records_clean),
+                        "client_id": client_id  # ← NUEVO: Incluir en error
                     }
             else:
                 logger.info("STEP 7: Saltado (save_to_db=False)")
+            
             column_mapping_clean = clean_for_json(column_mapping)
             validation_result_clean = clean_for_json(validation_result)
 
@@ -162,6 +175,8 @@ class StandardizationPipeline:
                     "format": "rag1_standard",
                     "data": standardized_records_clean,
                     "metadata": {
+                        "client_id": client_id,  # ← NUEVO: Info del cliente
+                        "schema": f"kb_{client_id}",  # ← NUEVO: Info del schema
                         "column_mapping": column_mapping_clean,
                         "validation": validation_result_clean,
                         "storage": storage_result  # Info del guardado en PostgreSQL
@@ -173,6 +188,8 @@ class StandardizationPipeline:
                     "format": "rag2_standard",
                     "data": standardized_records_clean,
                     "metadata": {
+                        "client_id": client_id,  # ← NUEVO: Info del cliente
+                        "schema": f"kb_{client_id}",  # ← NUEVO: Info del schema
                         "column_mapping": column_mapping_clean,
                         "validation": validation_result_clean,
                         "storage": storage_result  # Info del guardado en PostgreSQL
@@ -193,16 +210,18 @@ class StandardizationPipeline:
                 processing_time_seconds = round(processing_time, 2)
             )
 
-            logger.info(f"Pipeline completado exitosamente en {processing_time:.2f}s - RAG: {target_rag.upper()}, Registros: {len(standardized_records)}")
+            logger.info(f"Pipeline completado exitosamente en {processing_time:.2f}s")
+            logger.info(f"Cliente: {client_id}, RAG: {target_rag.upper()}, Registros: {len(standardized_records)}")
             return response
 
         except Exception as e:
             # En caso de error, retornar respuesta de error
             processing_time = time.time() - start_time
             logger.error(f"Error en pipeline después de {processing_time:.2f}s: {str(e)}", exc_info=True)
+            logger.error(f"[MULTI-TENANT] Cliente afectado: {client_id}")
 
             # Para mantener la estructura, crear respuesta mínima
-            raise Exception(f"Error en pipeline: {str(e)}")
+            raise Exception(f"Error en pipeline para cliente {client_id}: {str(e)}")
 
     def _generate_column_mapping(self, df, target_rag: str) -> dict:
         """
